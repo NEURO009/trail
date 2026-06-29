@@ -1,0 +1,663 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>IRIS Platform — Interactive Architecture Visualization</title>
+  <!-- Load D3.js CDN -->
+  <script src="https://d3js.org/d3.v7.min.js"></script>
+  <style>
+    :root {
+      --bg: #0f111a;
+      --surface: #161824;
+      --surface-card: #1e2132;
+      --border: #2a2e45;
+      --text: #e2e8f0;
+      --text-muted: #8892b0;
+      --accent-blue: #4f8ef7;
+      --accent-purple: #7c5cbf;
+      --accent-green: #2eb88a;
+      --accent-orange: #e87040;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      background-color: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      overflow: hidden;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    header {
+      background-color: var(--surface);
+      border-bottom: 1px solid var(--border);
+      padding: 16px 24px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      z-index: 10;
+    }
+
+    header h1 {
+      font-size: 1.25rem;
+      font-weight: 700;
+      color: var(--text);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    header h1 span {
+      background: linear-gradient(135deg, var(--accent-blue), var(--accent-purple));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    .subtitle {
+      font-size: 0.8rem;
+      color: var(--text-muted);
+      margin-top: 2px;
+    }
+
+    .main-container {
+      flex: 1;
+      display: flex;
+      position: relative;
+      overflow: hidden;
+    }
+
+    #canvas-container {
+      flex: 1;
+      height: 100%;
+      position: relative;
+    }
+
+    svg {
+      width: 100%;
+      height: 100%;
+    }
+
+    /* Info Sidebar */
+    .sidebar {
+      width: 380px;
+      background-color: var(--surface);
+      border-left: 1px solid var(--border);
+      padding: 24px;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+      z-index: 5;
+      box-shadow: -4px 0 16px rgba(0,0,0,0.3);
+      transition: transform 0.3s ease;
+    }
+
+    /* Node types styling */
+    .badge {
+      display: inline-block;
+      padding: 4px 8px;
+      border-radius: 4px;
+      font-size: 0.7rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    .badge-source { background-color: rgba(79, 142, 247, 0.15); color: var(--accent-blue); }
+    .badge-notebook { background-color: rgba(124, 92, 191, 0.15); color: var(--accent-purple); }
+    .badge-destination { background-color: rgba(46, 184, 138, 0.15); color: var(--accent-green); }
+
+    .card {
+      background-color: var(--surface-card);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 16px;
+    }
+
+    .card h3 {
+      font-size: 0.9rem;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      margin-bottom: 8px;
+    }
+
+    .list-item {
+      font-family: monospace;
+      font-size: 0.8rem;
+      color: #9cdcfe;
+      padding: 4px 0;
+      border-bottom: 1px solid rgba(255,255,255,0.05);
+    }
+    .list-item:last-child {
+      border-bottom: none;
+    }
+
+    /* Controls overlay */
+    .controls {
+      position: absolute;
+      top: 16px;
+      left: 16px;
+      background-color: rgba(22, 24, 36, 0.95);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 16px;
+      z-index: 5;
+      backdrop-filter: blur(8px);
+      width: 280px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.25);
+    }
+
+    .controls h2 {
+      font-size: 0.9rem;
+      margin-bottom: 12px;
+      color: var(--text);
+      font-weight: 600;
+    }
+
+    .search-box {
+      width: 100%;
+      background-color: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      padding: 8px 12px;
+      color: var(--text);
+      font-size: 0.85rem;
+      margin-bottom: 12px;
+      outline: none;
+    }
+
+    .search-box:focus {
+      border-color: var(--accent-blue);
+    }
+
+    .filter-group {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .filter-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 0.85rem;
+      cursor: pointer;
+    }
+
+    .filter-item input {
+      cursor: pointer;
+    }
+
+    /* D3 Canvas elements */
+    .link {
+      stroke: #2a2e45;
+      stroke-opacity: 0.6;
+      stroke-width: 1.5px;
+      fill: none;
+      transition: stroke-opacity 0.2s, stroke 0.2s;
+    }
+
+    .node circle {
+      cursor: pointer;
+      stroke: var(--bg);
+      stroke-width: 1.5px;
+      transition: r 0.2s, fill 0.2s;
+    }
+
+    .node text {
+      font-size: 0.75rem;
+      fill: var(--text-muted);
+      pointer-events: none;
+      transition: fill 0.2s, font-weight 0.2s;
+    }
+
+    .node:hover text {
+      fill: var(--text);
+      font-weight: bold;
+    }
+
+    /* Legend */
+    .legend {
+      position: absolute;
+      bottom: 16px;
+      left: 16px;
+      background-color: rgba(22, 24, 36, 0.95);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 12px;
+      z-index: 5;
+      font-size: 0.75rem;
+      display: flex;
+      gap: 12px;
+    }
+
+    .legend-item {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .legend-color {
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+    }
+  </style>
+</head>
+<body>
+
+  <header>
+    <div>
+      <h1>⚡ <span>IRIS Analytics Platform</span> — Architecture Map</h1>
+      <div class="subtitle">Interactive lineage and pipeline dependencies graph</div>
+    </div>
+  </header>
+
+  <div class="main-container">
+    <!-- Controls Overlay -->
+    <div class="controls">
+      <h2>Search Components</h2>
+      <input type="text" id="search" class="search-box" placeholder="Search by name or purpose...">
+      
+      <h2>Layers</h2>
+      <div class="filter-group">
+        <label class="filter-item">
+          <input type="checkbox" id="show-source" checked>
+          <span style="color: var(--accent-blue)">■</span> Data Sources
+        </label>
+        <label class="filter-item">
+          <input type="checkbox" id="show-notebook" checked>
+          <span style="color: var(--accent-purple)">■</span> Processing Pipelines
+        </label>
+        <label class="filter-item">
+          <input type="checkbox" id="show-destination" checked>
+          <span style="color: var(--accent-green)">■</span> Storage & Serving
+        </label>
+      </div>
+    </div>
+
+    <!-- Canvas -->
+    <div id="canvas-container">
+      <svg id="canvas"></svg>
+      
+      <!-- Legend -->
+      <div class="legend">
+        <div class="legend-item">
+          <div class="legend-color" style="background-color: var(--accent-blue)"></div>
+          <span>Sources</span>
+        </div>
+        <div class="legend-item">
+          <div class="legend-color" style="background-color: var(--accent-purple)"></div>
+          <span>Pipelines</span>
+        </div>
+        <div class="legend-item">
+          <div class="legend-color" style="background-color: var(--accent-green)"></div>
+          <span>Storage & Application</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Sidebar Details -->
+    <div class="sidebar" id="sidebar">
+      <div style="text-align: center; padding: 40px 0; color: var(--text-muted);" id="default-sidebar-content">
+        <h3>Select a Node</h3>
+        <p style="font-size: 0.85rem; margin-top: 8px;">Click any pipeline or database node in the diagram to inspect its parameters, dependencies, inputs, and outputs.</p>
+      </div>
+      <div id="active-sidebar-content" style="display: none;">
+        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px;">
+          <span class="badge" id="node-badge">Notebook</span>
+          <span style="font-size: 0.75rem; color: var(--text-muted);" id="node-tech">PySpark</span>
+        </div>
+        <h2 id="node-name" style="font-size: 1.15rem; color: var(--text); margin-bottom: 8px;">01_NIELSEN_TRANSFORMATION</h2>
+        <p id="node-purpose" style="font-size: 0.85rem; color: var(--text-muted); line-height: 1.5; margin-bottom: 20px;">Deduplicates raw Nielsen scanner datasets and appends ACV distribution percentage variables.</p>
+        
+        <div class="card" style="margin-bottom: 16px;">
+          <h3>Input Datasets</h3>
+          <div id="node-inputs"></div>
+        </div>
+
+        <div class="card">
+          <h3>Output Persistance</h3>
+          <div id="node-outputs"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // Embedded Data Graph
+    const graphData = {
+      nodes: [
+        { "id": "src_nielsen", "name": "FACT_POS_SYNDICATED (Nielsen)", "type": "source", "module": "Raw Ingestion", "purpose": "Ingests raw Nielsen POS scan transaction tables", "inputs": ["Syndicated POS Broker files"], "outputs": ["NIELSEN_METRICS.parquet"], "technology": "ADLS Gen2 / Snowflake" },
+        { "id": "src_kroger", "name": "Kroger POS Data", "type": "source", "module": "Raw Ingestion", "purpose": "Stores weekly Kroger store and division POS transactions", "inputs": ["Kroger POS files"], "outputs": ["KROGER_TOTAL_CORP_POS.parquet"], "technology": "ADLS Gen2" },
+        { "id": "src_amazon", "name": "Amazon POS data", "type": "source", "module": "Raw Ingestion", "purpose": "E-commerce sales records from Amazon vendor central", "inputs": ["Amazon e-commerce logs"], "outputs": ["AMAZON_METRICS.parquet"], "technology": "ADLS Gen2" },
+        { "id": "src_profitero", "name": "Profitero Search & OOS Data", "type": "source", "module": "Raw Ingestion", "purpose": "Daily out-of-stock and ASIN keyword search positions", "inputs": ["Profitero Scraping API"], "outputs": ["IRIS_AMAZON_SEARCH_RANK.parquet", "IRIS_AVAILABILITY.parquet"], "technology": "ADLS Gen2 / API" },
+        { "id": "src_circana", "name": "Circana Distance Matrix", "type": "source", "module": "Raw Ingestion", "purpose": "Pairwise product attribute similarity score spreadsheets", "inputs": ["XGBoost category model runs"], "outputs": ["IRIS_REF_PRODUCT_DISTANCE.parquet"], "technology": "CSV files / XGBoost" },
+        { "id": "src_tpm", "name": "TPM Promotions database", "type": "source", "module": "Raw Ingestion", "purpose": "Trade spends and scheduled promotional events planning calendar", "inputs": ["TPM Database"], "outputs": ["TPO_FEATURES.parquet"], "technology": "Snowflake Secure" },
+        { "id": "nb_nielsen_trans", "name": "01_NIELSEN_TRANSFORMATION", "type": "notebook", "module": "01_DATA_TRANSFORMATION", "purpose": "Clean, deduplicate POS scanner records and attach ACV percentages", "inputs": ["FACT_POS_SYNDICATED", "DIM_PROMOTION", "DIM_PRODUCT", "DIM_MARKET"], "outputs": ["NIELSEN_METRICS.parquet"], "technology": "PySpark", "execution_order": 1 },
+        { "id": "nb_amazon_trans", "name": "04_AMAZON_TRANSFORMATION", "type": "notebook", "module": "01_DATA_TRANSFORMATION", "purpose": "Format e-commerce metrics to align with standard POS tables", "inputs": ["Amazon raw sales"], "outputs": ["AMAZON_METRICS.parquet"], "technology": "PySpark", "execution_order": 2 },
+        { "id": "nb_kroger_trans", "name": "07_KROGER_STORE_TRANSFORMATION", "type": "notebook", "module": "01_DATA_TRANSFORMATION", "purpose": "Aggregate Kroger store data to division and corporate levels", "inputs": ["Kroger Store POS"], "outputs": ["KROGER_TOTAL_CORP_POS.parquet"], "technology": "PySpark", "execution_order": 3 },
+        { "id": "nb_search_trans", "name": "05_PROFITERO_SEARCH_RANKING", "type": "notebook", "module": "01_DATA_TRANSFORMATION", "purpose": "Align search rank details to product keys and aggregate weekly rankings", "inputs": ["Profitero Search database"], "outputs": ["IRIS_AMAZON_SEARCH_RANK.parquet"], "technology": "PySpark", "execution_order": 4 },
+        { "id": "nb_oos_trans", "name": "06_PROFITERO_AVAILABILITY", "type": "notebook", "module": "01_DATA_TRANSFORMATION", "purpose": "Compute availability rates (1 - Out of Stock rate) per product group", "inputs": ["Profitero stock logs"], "outputs": ["IRIS_AVAILABILITY.parquet"], "technology": "PySpark", "execution_order": 5 },
+        { "id": "nb_calendar", "name": "03_CALENDAR_CREATION", "type": "notebook", "module": "01_DATA_TRANSFORMATION", "purpose": "Map retail calendar periods and define holiday events datasets", "inputs": ["DIM_TIME", "holiday_configs"], "outputs": ["IRIS_MD_CALENDAR.parquet", "IRIS_MD_HOLIDAYS.parquet"], "technology": "PySpark", "execution_order": 6 },
+        { "id": "nb_product_def", "name": "02_IRIS_PRODUCT_DEFINITION", "type": "notebook", "module": "01_DATA_TRANSFORMATION", "purpose": "Verify POS volumes and replace low-volume UPC PPG records with scaled subtotal data", "inputs": ["NIELSEN_METRICS.parquet", "AMAZON_METRICS.parquet", "KROGER_TOTAL_CORP_POS.parquet", "IRIS_AMAZON_SEARCH_RANK.parquet", "IRIS_AVAILABILITY.parquet"], "outputs": ["IRIS_FACTS_BASE_METRICS.parquet"], "technology": "PySpark", "execution_order": 7 },
+        { "id": "nb_base_features", "name": "01_BASE_MODEL_FEATURES", "type": "notebook", "module": "02_FEATURE_ENGINEERING", "purpose": "Apply ACV limits, calculate unit base price, and run stick algorithm smoothing", "inputs": ["IRIS_FACTS_BASE_METRICS.parquet", "IRIS_MD_CALENDAR.parquet"], "outputs": ["IRIS_FACTS_BASE_METRICS.parquet (updated)"], "technology": "PySpark", "execution_order": 8 },
+        { "id": "nb_agg_features", "name": "02_BASE_MODEL_FEATURE_AGGREGATION", "type": "notebook", "module": "02_FEATURE_ENGINEERING", "purpose": "Aggregate pricing and ACV features to brand and category hierarchies", "inputs": ["IRIS_FACTS_BASE_METRICS.parquet (updated)"], "outputs": ["IRIS_FACTS_AGG_METRICS.parquet"], "technology": "PySpark", "execution_order": 9 },
+        { "id": "nb_comp_distance", "name": "03_COMP_PRODUCT_DISTANCING", "type": "notebook", "module": "02_FEATURE_ENGINEERING", "purpose": "Build product similarity mappings using physical UPC specs where Circana data is missing", "inputs": ["IRIS_REF_PRODUCT_DISTANCE.parquet"], "outputs": ["IRIS_REF_COMP_PRODUCT_MAPPING.parquet"], "technology": "PySpark / Euclidean distance", "execution_order": 10 },
+        { "id": "nb_comp_weights", "name": "04_COMP_INTERACTION_WEIGHTS", "type": "notebook", "module": "02_FEATURE_ENGINEERING", "purpose": "Calculate normalized competitor interaction weights per market", "inputs": ["IRIS_REF_COMP_PRODUCT_MAPPING.parquet", "IRIS_FACTS_BASE_METRICS.parquet (updated)"], "outputs": ["IRIS_REF_COMP_INTERACTION_WEIGHTS/"], "technology": "PySpark", "execution_order": 11 },
+        { "id": "nb_comp_agg", "name": "05_COMP_INTERACTION_FEATURE_AGGREGATION", "type": "notebook", "module": "02_FEATURE_ENGINEERING", "purpose": "Compile weighted competitor prices, ACV, and display averages", "inputs": ["IRIS_REF_COMP_INTERACTION_WEIGHTS/", "IRIS_FACTS_BASE_METRICS.parquet (updated)"], "outputs": ["IRIS_FACTS_COMP_INTERACTION_METRICS.parquet"], "technology": "PySpark", "execution_order": 12 },
+        { "id": "nb_seasonality", "name": "06_SEASONALITY_FEATURES", "type": "notebook", "module": "02_FEATURE_ENGINEERING", "purpose": "Train Prophet seasonality models in parallel using distributed PandasUDF runs", "inputs": ["IRIS_FACTS_BASE_METRICS.parquet (updated)", "IRIS_MD_HOLIDAYS.parquet"], "outputs": ["IRIS_FACTS_SEASONALITY.parquet"], "technology": "Meta Prophet / PandasUDF", "execution_order": 13 },
+        { "id": "nb_model_df", "name": "01_MODEL_DATAFRAME", "type": "notebook", "module": "03_MODEL_EXECUTION", "purpose": "Join metrics, competitor weighted parameters, and seasonality before pivoting to a wide structure", "inputs": ["IRIS_FACTS_BASE_METRICS.parquet", "IRIS_FACTS_AGG_METRICS.parquet", "IRIS_FACTS_COMP_INTERACTION_METRICS.parquet", "IRIS_FACTS_SEASONALITY.parquet"], "outputs": ["MODEL_DATAFRAME/"], "technology": "PySpark", "execution_order": 14 },
+        { "id": "nb_model_exec_bayes", "name": "02_01_MODEL_EXECUTION_ADF (Bayesian)", "type": "notebook", "module": "03_MODEL_EXECUTION", "purpose": "Execute Bayesian regression fittings via Bambi/PyMC MCMC sampler in a PandasUDF", "inputs": ["MODEL_DATAFRAME/", "priors"], "outputs": ["MODEL_COEF/ (temporary)", "MODEL_PRED/ (temporary)"], "technology": "Bambi / PyMC / PandasUDF", "execution_order": 15 },
+        { "id": "nb_model_exec_ols", "name": "02_02_MODEL_EXECUTION_ADF_NON_BAYESIAN (OLS)", "type": "notebook", "module": "03_MODEL_EXECUTION", "purpose": "Execute sign-constrained, Ridge-regularized Ordinary Least Squares (OLS) fits via SciPy optimizer", "inputs": ["MODEL_DATAFRAME/"], "outputs": ["MODEL_COEF/ (temporary)", "MODEL_PRED/ (temporary)"], "technology": "SciPy minimize / PandasUDF", "execution_order": 16 },
+        { "id": "nb_commit_model", "name": "03_01_COMMIT_MODEL", "type": "notebook", "module": "03_MODEL_EXECUTION", "purpose": "Commit runtime coefficients to historical log storage and clean runtime cache directories", "inputs": ["MODEL_COEF/ (temporary)", "MODEL_PRED/ (temporary)"], "outputs": ["COEF_HISTORY parquets"], "technology": "PySpark", "execution_order": 17 },
+        { "id": "nb_deploy_coef", "name": "03_02_MODEL_COEF_DEPLOY", "type": "notebook", "module": "03_MODEL_EXECUTION", "purpose": "Perform percentile-based outlier checks (P5/P95), backfill missing series, and deploy active coefficients", "inputs": ["COEF_HISTORY parquets"], "outputs": ["IRIS_MODEL_COEF_CURRENT"], "technology": "PySpark / Outlier Filters", "execution_order": 18 },
+        { "id": "nb_decomp", "name": "04_MODEL_DECOMP", "type": "notebook", "module": "03_MODEL_EXECUTION", "purpose": "Compute waterfall decompositions attributing sales volumes to feature changes", "inputs": ["IRIS_MODEL_COEF_CURRENT", "MODEL_DATAFRAME/"], "outputs": ["MODEL_DECOMP parquets"], "technology": "PySpark", "execution_order": 19 },
+        { "id": "nb_extrapolate", "name": "05_MODEL_COEF_EXTRAPOLATION", "type": "notebook", "module": "03_MODEL_EXECUTION", "purpose": "Impute coefficient values for low-variation features or missing markets from higher hierarchical models", "inputs": ["IRIS_MODEL_COEF_CURRENT"], "outputs": ["IRIS_MODEL_COEF_EXTRAPOLATED.parquet"], "technology": "PySpark", "execution_order": 20 },
+        { "id": "dest_snowflake", "name": "Snowflake Reporting Mart", "type": "destination", "module": "Gold Layer Storage", "purpose": "Gold metrics databases refreshed via DBT transformations to serve reports", "inputs": ["IRIS_MODEL_COEF_CURRENT", "MODEL_DECOMP parquets", "CATEGORY_INCREMENTALITY"], "outputs": ["Power BI Server health dashboards"], "technology": "Snowflake DB / DBT" },
+        { "id": "dest_sql_server", "name": "Azure SQL Application DB", "type": "destination", "module": "Gold Layer Storage", "purpose": "Transactional application database hosting scenario models and facts", "inputs": ["Blended Scenario parquets", "IRIS_FACTS_BASE_METRICS.parquet (updated)"], "outputs": ["React UI Simulator interface"], "technology": "Azure SQL Server" },
+        { "id": "dest_alerts", "name": "Proactive Alerts System", "type": "destination", "module": "Downstream Serving", "purpose": "Calculates KPI deviation metrics and triggers email digests to subscriber profiles", "inputs": ["IRIS_MODEL_COEF_CURRENT", "IRIS_FACTS_BASE_METRICS.parquet (updated)", "MODEL_DECOMP parquets"], "outputs": ["Logic App HTTP Post -> Email delivery"], "technology": "ADF ThreadPool / Logic Apps" }
+      ],
+      links: [
+        { "source": "src_nielsen", "target": "nb_nielsen_trans", "type": "READS" },
+        { "source": "src_amazon", "target": "nb_amazon_trans", "type": "READS" },
+        { "source": "src_kroger", "target": "nb_kroger_trans", "type": "READS" },
+        { "source": "src_profitero", "target": "nb_search_trans", "type": "READS" },
+        { "source": "src_profitero", "target": "nb_oos_trans", "type": "READS" },
+        { "source": "src_circana", "target": "nb_comp_distance", "type": "READS" },
+        { "source": "nb_calendar", "target": "nb_base_features", "type": "PROVIDES_CALENDAR" },
+        { "source": "nb_calendar", "target": "nb_seasonality", "type": "PROVIDES_HOLIDAYS" },
+        { "source": "nb_nielsen_trans", "target": "nb_product_def", "type": "TRANSFORMS" },
+        { "source": "nb_amazon_trans", "target": "nb_product_def", "type": "TRANSFORMS" },
+        { "source": "nb_kroger_trans", "target": "nb_product_def", "type": "TRANSFORMS" },
+        { "source": "nb_search_trans", "target": "nb_product_def", "type": "TRANSFORMS" },
+        { "source": "nb_oos_trans", "target": "nb_product_def", "type": "TRANSFORMS" },
+        { "source": "nb_product_def", "target": "nb_base_features", "type": "FEEDS" },
+        { "source": "nb_base_features", "target": "nb_agg_features", "type": "AGGREGATES" },
+        { "source": "nb_base_features", "target": "nb_seasonality", "type": "FEEDS_PROPHET" },
+        { "source": "nb_base_features", "target": "nb_comp_weights", "type": "WEIGHTS_CALC" },
+        { "source": "nb_comp_distance", "target": "nb_comp_weights", "type": "MAPS_SIMILARITY" },
+        { "source": "nb_comp_weights", "target": "nb_comp_agg", "type": "FEEDS_WEIGHTS" },
+        { "source": "nb_base_features", "target": "nb_comp_agg", "type": "FEEDS_METRICS" },
+        { "source": "nb_base_features", "target": "nb_model_df", "type": "FEEDS_MODEL_METRICS" },
+        { "source": "nb_agg_features", "target": "nb_model_df", "type": "FEEDS_MODEL_AGGREGATES" },
+        { "source": "nb_comp_agg", "target": "nb_model_df", "type": "FEEDS_MODEL_COMPETITORS" },
+        { "source": "nb_seasonality", "target": "nb_model_df", "type": "FEEDS_MODEL_SEASONALITY" },
+        { "source": "nb_model_df", "target": "nb_model_exec_bayes", "type": "TRAINS_BAYES" },
+        { "source": "nb_model_df", "target": "nb_model_exec_ols", "type": "TRAINS_OLS" },
+        { "source": "nb_model_exec_bayes", "target": "nb_commit_model", "type": "COMMITS" },
+        { "source": "nb_model_exec_ols", "target": "nb_commit_model", "type": "COMMITS" },
+        { "source": "nb_commit_model", "target": "nb_deploy_coef", "type": "DEPLOYS" },
+        { "source": "nb_deploy_coef", "target": "nb_decomp", "type": "CALCULATES_DECOMP" },
+        { "source": "nb_deploy_coef", "target": "nb_extrapolate", "type": "EXTRAPOLATES" },
+        { "source": "nb_deploy_coef", "target": "dest_snowflake", "type": "SYNCS_COEFFICIENTS" },
+        { "source": "nb_decomp", "target": "dest_snowflake", "type": "SYNCS_DECOMP" },
+        { "source": "nb_deploy_coef", "target": "dest_sql_server", "type": "SYNCS_SCENARIO" },
+        { "source": "nb_base_features", "target": "dest_sql_server", "type": "SYNCS_FACTS" },
+        { "source": "nb_deploy_coef", "target": "dest_alerts", "type": "EVALUATES_KPI" },
+        { "source": "nb_base_features", "target": "dest_alerts", "type": "EVALUATES_KPI" },
+        { "source": "nb_decomp", "target": "dest_alerts", "type": "EVALUATES_KPI" }
+      ]
+    };
+
+    // Color definitions
+    const colors = {
+      source: '#4f8ef7',
+      notebook: '#7c5cbf',
+      destination: '#2eb88a'
+    };
+
+    const container = document.getElementById('canvas-container');
+    const width = container.clientWidth;
+    const height = container.clientHeight;
+
+    const svg = d3.select("#canvas")
+      .attr("viewBox", [0, 0, width, height]);
+
+    // Zoom setup
+    const g = svg.append("g");
+    svg.call(d3.zoom().on("zoom", (e) => g.attr("transform", e.transform)));
+
+    // Reset highlights on background click
+    svg.on("click", (event) => {
+      if (event.target.tagName === "svg") {
+        resetHighlight();
+      }
+    });
+
+    // Arrow markers
+    g.append("defs").selectAll("marker")
+      .data(["end"])
+      .enter().append("marker")
+      .attr("id", String)
+      .attr("viewBox", "0 -5 10 10")
+      .attr("refX", 22)
+      .attr("refY", 0)
+      .attr("markerWidth", 6)
+      .attr("markerHeight", 6)
+      .attr("orient", "auto")
+      .append("path")
+      .attr("d", "M0,-5L10,0L0,5")
+      .attr("fill", "#2a2e45");
+
+    // Force simulation
+    const simulation = d3.forceSimulation()
+      .force("link", d3.forceLink().id(d => d.id).distance(120))
+      .force("charge", d3.forceManyBody().strength(-300))
+      .force("center", d3.forceCenter(width / 2, height / 2))
+      .force("x", d3.forceX(width / 2).strength(0.1))
+      .force("y", d3.forceY(height / 2).strength(0.1));
+
+    let activeNode = null;
+    let originalNodes = [...graphData.nodes];
+    let originalLinks = [...graphData.links];
+
+    updateGraph(originalNodes, originalLinks);
+
+    function updateGraph(nodes, links) {
+      g.selectAll(".link").remove();
+      g.selectAll(".node").remove();
+
+      // Render links
+      const link = g.append("g")
+        .selectAll("path")
+        .data(links)
+        .enter().append("path")
+        .attr("class", "link")
+        .attr("marker-end", "url(#end)");
+
+      // Render nodes
+      const node = g.append("g")
+        .selectAll(".node")
+        .data(nodes)
+        .enter().append("g")
+        .attr("class", "node")
+        .call(d3.drag()
+          .on("start", dragstarted)
+          .on("drag", dragged)
+          .on("end", dragended))
+        .on("click", (event, d) => showDetails(event, d));
+
+      node.append("circle")
+        .attr("r", d => d.type === 'notebook' ? 10 : 12)
+        .attr("fill", d => colors[d.type])
+        .attr("stroke", "#0f111a")
+        .attr("stroke-width", 2);
+
+      node.append("text")
+        .attr("dx", 16)
+        .attr("dy", 4)
+        .text(d => d.name);
+
+      simulation.nodes(nodes).on("tick", () => {
+        link.attr("d", d => {
+          const dx = d.target.x - d.source.x,
+                dy = d.target.y - d.source.y,
+                dr = Math.sqrt(dx * dx + dy * dy);
+          return `M${d.source.x},${d.source.y}A${dr},${dr} 0 0,1 ${d.target.x},${d.target.y}`;
+        });
+
+        node.attr("transform", d => `translate(${d.x},${d.y})`);
+      });
+
+      simulation.force("link").links(links);
+      simulation.alpha(1).restart();
+    }
+
+    // Drag controllers
+    function dragstarted(event, d) {
+      if (!event.active) simulation.alphaTarget(0.3).restart();
+      d.fx = d.x;
+      d.fy = d.y;
+    }
+    function dragged(event, d) {
+      d.fx = event.x;
+      d.fy = event.y;
+    }
+    function dragended(event, d) {
+      if (!event.active) simulation.alphaTarget(0);
+      d.fx = null;
+      d.fy = null;
+    }
+
+    // Sidebar detail card compiler
+    function showDetails(event, d) {
+      if (event) event.stopPropagation();
+
+      // Highlight connections
+      const connectedNodeIds = new Set();
+      connectedNodeIds.add(d.id);
+
+      d3.selectAll(".link")
+        .style("stroke-opacity", l => {
+          const sourceId = l.source.id || l.source;
+          const targetId = l.target.id || l.target;
+          if (sourceId === d.id || targetId === d.id) {
+            connectedNodeIds.add(sourceId);
+            connectedNodeIds.add(targetId);
+            return 1.0;
+          }
+          return 0.15;
+        })
+        .style("stroke", l => {
+          const sourceId = l.source.id || l.source;
+          const targetId = l.target.id || l.target;
+          if (sourceId === d.id || targetId === d.id) {
+            return "var(--accent-orange)";
+          }
+          return "#2a2e45";
+        })
+        .style("stroke-width", l => {
+          const sourceId = l.source.id || l.source;
+          const targetId = l.target.id || l.target;
+          return (sourceId === d.id || targetId === d.id) ? "3px" : "1.5px";
+        });
+
+      // Dim non-connected nodes
+      d3.selectAll(".node")
+        .style("opacity", n => connectedNodeIds.has(n.id) ? 1.0 : 0.25);
+
+      d3.selectAll("circle").attr("stroke", "#0f111a").attr("stroke-width", 2);
+      d3.selectAll(".node").filter(n => n.id === d.id).select("circle")
+        .attr("stroke", "#e2e8f0").attr("stroke-width", 3);
+
+      document.getElementById('default-sidebar-content').style.display = 'none';
+      document.getElementById('active-sidebar-content').style.display = 'block';
+
+      const badge = document.getElementById('node-badge');
+      badge.className = 'badge badge-' + d.type;
+      badge.innerText = d.type;
+
+      document.getElementById('node-name').innerText = d.name;
+      document.getElementById('node-tech').innerText = d.technology;
+      document.getElementById('node-purpose').innerText = d.purpose;
+
+      const inputsContainer = document.getElementById('node-inputs');
+      inputsContainer.innerHTML = '';
+      d.inputs.forEach(input => {
+        const item = document.createElement('div');
+        item.className = 'list-item';
+        item.innerText = input;
+        inputsContainer.appendChild(item);
+      });
+
+      const outputsContainer = document.getElementById('node-outputs');
+      outputsContainer.innerHTML = '';
+      d.outputs.forEach(output => {
+        const item = document.createElement('div');
+        item.className = 'list-item';
+        item.style.color = '#a3e635';
+        item.innerText = output;
+        outputsContainer.appendChild(item);
+      });
+    }
+
+    // Reset highlights on background click
+    function resetHighlight() {
+      d3.selectAll(".link")
+        .style("stroke-opacity", 0.6)
+        .style("stroke", "#2a2e45")
+        .style("stroke-width", "1.5px");
+
+      d3.selectAll(".node")
+        .style("opacity", 1.0);
+
+      d3.selectAll("circle")
+        .attr("stroke", "#0f111a")
+        .attr("stroke-width", 2);
+
+      document.getElementById('default-sidebar-content').style.display = 'block';
+      document.getElementById('active-sidebar-content').style.display = 'none';
+    }
+
+    // Filter controls
+    const checkboxes = {
+      source: document.getElementById('show-source'),
+      notebook: document.getElementById('show-notebook'),
+      destination: document.getElementById('show-destination')
+    };
+
+    Object.keys(checkboxes).forEach(type => {
+      checkboxes[type].addEventListener('change', filterGraph);
+    });
+
+    document.getElementById('search').addEventListener('input', filterGraph);
+
+    function filterGraph() {
+      const searchTerm = document.getElementById('search').value.toLowerCase();
+      const showTypes = {
+        source: checkboxes.source.checked,
+        notebook: checkboxes.notebook.checked,
+        destination: checkboxes.destination.checked
+      };
+
+      // Filter nodes
+      const filteredNodes = originalNodes.filter(n => {
+        const matchesType = showTypes[n.type];
+        const matchesSearch = n.name.toLowerCase().includes(searchTerm) || 
+                              n.purpose.toLowerCase().includes(searchTerm);
+        return matchesType && matchesSearch;
+      });
+
+      // Filter edges
+      const activeIds = new Set(filteredNodes.map(n => n.id));
+      const filteredLinks = originalLinks.filter(l => {
+        const sourceId = typeof l.source === 'object' ? l.source.id : l.source;
+        const targetId = typeof l.target === 'object' ? l.target.id : l.target;
+        return activeIds.has(sourceId) && activeIds.has(targetId);
+      });
+
+      updateGraph(filteredNodes, filteredLinks);
+    }
+  </script>
+</body>
+</html>
