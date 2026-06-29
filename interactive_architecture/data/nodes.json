@@ -1,0 +1,312 @@
+[
+  {
+    "id": "src_nielsen",
+    "name": "FACT_POS_SYNDICATED (Nielsen)",
+    "type": "source",
+    "module": "Raw Ingestion",
+    "purpose": "Ingests raw Nielsen POS scan transaction tables",
+    "inputs": ["Syndicated POS Broker files"],
+    "outputs": ["NIELSEN_METRICS.parquet"],
+    "technology": "ADLS Gen2 / Snowflake"
+  },
+  {
+    "id": "src_kroger",
+    "name": "Kroger POS Data",
+    "type": "source",
+    "module": "Raw Ingestion",
+    "purpose": "Stores weekly Kroger store and division POS transactions",
+    "inputs": ["Kroger POS files"],
+    "outputs": ["KROGER_TOTAL_CORP_POS.parquet"],
+    "technology": "ADLS Gen2"
+  },
+  {
+    "id": "src_amazon",
+    "name": "Amazon POS data",
+    "type": "source",
+    "module": "Raw Ingestion",
+    "purpose": "E-commerce sales records from Amazon vendor central",
+    "inputs": ["Amazon e-commerce logs"],
+    "outputs": ["AMAZON_METRICS.parquet"],
+    "technology": "ADLS Gen2"
+  },
+  {
+    "id": "src_profitero",
+    "name": "Profitero Search & OOS Data",
+    "type": "source",
+    "module": "Raw Ingestion",
+    "purpose": "Daily out-of-stock and ASIN keyword search positions",
+    "inputs": ["Profitero Scraping API"],
+    "outputs": ["IRIS_AMAZON_SEARCH_RANK.parquet", "IRIS_AVAILABILITY.parquet"],
+    "technology": "ADLS Gen2 / API"
+  },
+  {
+    "id": "src_circana",
+    "name": "Circana Distance Matrix",
+    "type": "source",
+    "module": "Raw Ingestion",
+    "purpose": "Pairwise product attribute similarity score spreadsheets",
+    "inputs": ["XGBoost category model runs"],
+    "outputs": ["IRIS_REF_PRODUCT_DISTANCE.parquet"],
+    "technology": "CSV files / XGBoost"
+  },
+  {
+    "id": "src_tpm",
+    "name": "TPM Promotions database",
+    "type": "source",
+    "module": "Raw Ingestion",
+    "purpose": "Trade spends and scheduled promotional events planning calendar",
+    "inputs": ["TPM Database"],
+    "outputs": ["TPO_FEATURES.parquet"],
+    "technology": "Snowflake Secure"
+  },
+  {
+    "id": "nb_nielsen_trans",
+    "name": "01_NIELSEN_TRANSFORMATION",
+    "type": "notebook",
+    "module": "01_DATA_TRANSFORMATION",
+    "purpose": "Clean, deduplicate POS scanner records and attach ACV percentages",
+    "inputs": ["FACT_POS_SYNDICATED", "DIM_PROMOTION", "DIM_PRODUCT", "DIM_MARKET"],
+    "outputs": ["NIELSEN_METRICS.parquet"],
+    "technology": "PySpark",
+    "execution_order": 1
+  },
+  {
+    "id": "nb_amazon_trans",
+    "name": "04_AMAZON_TRANSFORMATION",
+    "type": "notebook",
+    "module": "01_DATA_TRANSFORMATION",
+    "purpose": "Format e-commerce metrics to align with standard POS tables",
+    "inputs": ["Amazon raw sales"],
+    "outputs": ["AMAZON_METRICS.parquet"],
+    "technology": "PySpark",
+    "execution_order": 2
+  },
+  {
+    "id": "nb_kroger_trans",
+    "name": "07_KROGER_STORE_TRANSFORMATION",
+    "type": "notebook",
+    "module": "01_DATA_TRANSFORMATION",
+    "purpose": "Aggregate Kroger store data to division and corporate levels",
+    "inputs": ["Kroger Store POS"],
+    "outputs": ["KROGER_TOTAL_CORP_POS.parquet"],
+    "technology": "PySpark",
+    "execution_order": 3
+  },
+  {
+    "id": "nb_search_trans",
+    "name": "05_PROFITERO_SEARCH_RANKING",
+    "type": "notebook",
+    "module": "01_DATA_TRANSFORMATION",
+    "purpose": "Align search rank details to product keys and aggregate weekly rankings",
+    "inputs": ["Profitero Search database"],
+    "outputs": ["IRIS_AMAZON_SEARCH_RANK.parquet"],
+    "technology": "PySpark",
+    "execution_order": 4
+  },
+  {
+    "id": "nb_oos_trans",
+    "name": "06_PROFITERO_AVAILABILITY",
+    "type": "notebook",
+    "module": "01_DATA_TRANSFORMATION",
+    "purpose": "Compute availability rates (1 - Out of Stock rate) per product group",
+    "inputs": ["Profitero stock logs"],
+    "outputs": ["IRIS_AVAILABILITY.parquet"],
+    "technology": "PySpark",
+    "execution_order": 5
+  },
+  {
+    "id": "nb_calendar",
+    "name": "03_CALENDAR_CREATION",
+    "type": "notebook",
+    "module": "01_DATA_TRANSFORMATION",
+    "purpose": "Map retail calendar periods and define holiday events datasets",
+    "inputs": ["DIM_TIME", holiday_configs],
+    "outputs": ["IRIS_MD_CALENDAR.parquet", "IRIS_MD_HOLIDAYS.parquet"],
+    "technology": "PySpark",
+    "execution_order": 6
+  },
+  {
+    "id": "nb_product_def",
+    "name": "02_IRIS_PRODUCT_DEFINITION",
+    "type": "notebook",
+    "module": "01_DATA_TRANSFORMATION",
+    "purpose": "Verify POS volumes and replace low-volume UPC PPG records with scaled subtotal data",
+    "inputs": ["NIELSEN_METRICS.parquet", "AMAZON_METRICS.parquet", "KROGER_TOTAL_CORP_POS.parquet", "IRIS_AMAZON_SEARCH_RANK.parquet", "IRIS_AVAILABILITY.parquet"],
+    "outputs": ["IRIS_FACTS_BASE_METRICS.parquet"],
+    "technology": "PySpark",
+    "execution_order": 7
+  },
+  {
+    "id": "nb_base_features",
+    "name": "01_BASE_MODEL_FEATURES",
+    "type": "notebook",
+    "module": "02_FEATURE_ENGINEERING",
+    "purpose": "Apply ACV limits, calculate unit base price, and run stick algorithm smoothing",
+    "inputs": ["IRIS_FACTS_BASE_METRICS.parquet", "IRIS_MD_CALENDAR.parquet"],
+    "outputs": ["IRIS_FACTS_BASE_METRICS.parquet (updated)"],
+    "technology": "PySpark",
+    "execution_order": 8
+  },
+  {
+    "id": "nb_agg_features",
+    "name": "02_BASE_MODEL_FEATURE_AGGREGATION",
+    "type": "notebook",
+    "module": "02_FEATURE_ENGINEERING",
+    "purpose": "Aggregate pricing and ACV features to brand and category hierarchies",
+    "inputs": ["IRIS_FACTS_BASE_METRICS.parquet (updated)"],
+    "outputs": ["IRIS_FACTS_AGG_METRICS.parquet"],
+    "technology": "PySpark",
+    "execution_order": 9
+  },
+  {
+    "id": "nb_comp_distance",
+    "name": "03_COMP_PRODUCT_DISTANCING",
+    "type": "notebook",
+    "module": "02_FEATURE_ENGINEERING",
+    "purpose": "Build product similarity mappings using physical UPC specs where Circana data is missing",
+    "inputs": ["IRIS_REF_PRODUCT_DISTANCE.parquet"],
+    "outputs": ["IRIS_REF_COMP_PRODUCT_MAPPING.parquet"],
+    "technology": "PySpark / Euclidean distance",
+    "execution_order": 10
+  },
+  {
+    "id": "nb_comp_weights",
+    "name": "04_COMP_INTERACTION_WEIGHTS",
+    "type": "notebook",
+    "module": "02_FEATURE_ENGINEERING",
+    "purpose": "Calculate normalized competitor interaction weights per market",
+    "inputs": ["IRIS_REF_COMP_PRODUCT_MAPPING.parquet", "IRIS_FACTS_BASE_METRICS.parquet (updated)"],
+    "outputs": ["IRIS_REF_COMP_INTERACTION_WEIGHTS/"],
+    "technology": "PySpark",
+    "execution_order": 11
+  },
+  {
+    "id": "nb_comp_agg",
+    "name": "05_COMP_INTERACTION_FEATURE_AGGREGATION",
+    "type": "notebook",
+    "module": "02_FEATURE_ENGINEERING",
+    "purpose": "Compile weighted competitor prices, ACV, and display averages",
+    "inputs": ["IRIS_REF_COMP_INTERACTION_WEIGHTS/", "IRIS_FACTS_BASE_METRICS.parquet (updated)"],
+    "outputs": ["IRIS_FACTS_COMP_INTERACTION_METRICS.parquet"],
+    "technology": "PySpark",
+    "execution_order": 12
+  },
+  {
+    "id": "nb_seasonality",
+    "name": "06_SEASONALITY_FEATURES",
+    "type": "notebook",
+    "module": "02_FEATURE_ENGINEERING",
+    "purpose": "Train Prophet seasonality models in parallel using distributed PandasUDF runs",
+    "inputs": ["IRIS_FACTS_BASE_METRICS.parquet (updated)", "IRIS_MD_HOLIDAYS.parquet"],
+    "outputs": ["IRIS_FACTS_SEASONALITY.parquet"],
+    "technology": "Meta Prophet / PandasUDF",
+    "execution_order": 13
+  },
+  {
+    "id": "nb_model_df",
+    "name": "01_MODEL_DATAFRAME",
+    "type": "notebook",
+    "module": "03_MODEL_EXECUTION",
+    "purpose": "Join metrics, competitor weighted parameters, and seasonality before pivoting to a wide structure",
+    "inputs": ["IRIS_FACTS_BASE_METRICS.parquet", "IRIS_FACTS_AGG_METRICS.parquet", "IRIS_FACTS_COMP_INTERACTION_METRICS.parquet", "IRIS_FACTS_SEASONALITY.parquet"],
+    "outputs": ["MODEL_DATAFRAME/"],
+    "technology": "PySpark",
+    "execution_order": 14
+  },
+  {
+    "id": "nb_model_exec_bayes",
+    "name": "02_01_MODEL_EXECUTION_ADF (Bayesian)",
+    "type": "notebook",
+    "module": "03_MODEL_EXECUTION",
+    "purpose": "Execute Bayesian regression fittings via Bambi/PyMC MCMC sampler in a PandasUDF",
+    "inputs": ["MODEL_DATAFRAME/", priors],
+    "outputs": ["MODEL_COEF/ (temporary)", "MODEL_PRED/ (temporary)"],
+    "technology": "Bambi / PyMC / PandasUDF",
+    "execution_order": 15
+  },
+  {
+    "id": "nb_model_exec_ols",
+    "name": "02_02_MODEL_EXECUTION_ADF_NON_BAYESIAN (OLS)",
+    "type": "notebook",
+    "module": "03_MODEL_EXECUTION",
+    "purpose": "Execute sign-constrained, Ridge-regularized Ordinary Least Squares (OLS) fits via SciPy optimizer",
+    "inputs": ["MODEL_DATAFRAME/"],
+    "outputs": ["MODEL_COEF/ (temporary)", "MODEL_PRED/ (temporary)"],
+    "technology": "SciPy minimize / PandasUDF",
+    "execution_order": 16
+  },
+  {
+    "id": "nb_commit_model",
+    "name": "03_01_COMMIT_MODEL",
+    "type": "notebook",
+    "module": "03_MODEL_EXECUTION",
+    "purpose": "Commit runtime coefficients to historical log storage and clean runtime cache directories",
+    "inputs": ["MODEL_COEF/ (temporary)", "MODEL_PRED/ (temporary)"],
+    "outputs": ["COEF_HISTORY parquets"],
+    "technology": "PySpark",
+    "execution_order": 17
+  },
+  {
+    "id": "nb_deploy_coef",
+    "name": "03_02_MODEL_COEF_DEPLOY",
+    "type": "notebook",
+    "module": "03_MODEL_EXECUTION",
+    "purpose": "Perform percentile-based outlier checks (P5/P95), backfill missing series, and deploy active coefficients",
+    "inputs": ["COEF_HISTORY parquets"],
+    "outputs": ["IRIS_MODEL_COEF_CURRENT"],
+    "technology": "PySpark / Outlier Filters",
+    "execution_order": 18
+  },
+  {
+    "id": "nb_decomp",
+    "name": "04_MODEL_DECOMP",
+    "type": "notebook",
+    "module": "03_MODEL_EXECUTION",
+    "purpose": "Compute waterfall decompositions attributing sales volumes to feature changes",
+    "inputs": ["IRIS_MODEL_COEF_CURRENT", "MODEL_DATAFRAME/"],
+    "outputs": ["MODEL_DECOMP parquets"],
+    "technology": "PySpark",
+    "execution_order": 19
+  },
+  {
+    "id": "nb_extrapolate",
+    "name": "05_MODEL_COEF_EXTRAPOLATION",
+    "type": "notebook",
+    "module": "03_MODEL_EXECUTION",
+    "purpose": "Impute coefficient values for low-variation features or missing markets from higher hierarchical models",
+    "inputs": ["IRIS_MODEL_COEF_CURRENT"],
+    "outputs": ["IRIS_MODEL_COEF_EXTRAPOLATED.parquet"],
+    "technology": "PySpark",
+    "execution_order": 20
+  },
+  {
+    "id": "dest_snowflake",
+    "name": "Snowflake Reporting Mart",
+    "type": "destination",
+    "module": "Gold Layer Storage",
+    "purpose": "Gold metrics databases refreshed via DBT transformations to serve reports",
+    "inputs": ["IRIS_MODEL_COEF_CURRENT", "MODEL_DECOMP parquets", "CATEGORY_INCREMENTALITY"],
+    "outputs": ["Power BI Server health dashboards"],
+    "technology": "Snowflake DB / DBT"
+  },
+  {
+    "id": "dest_sql_server",
+    "name": "Azure SQL Application DB",
+    "type": "destination",
+    "module": "Gold Layer Storage",
+    "purpose": "Transactional application database hosting scenario models and facts",
+    "inputs": ["Blended Scenario parquets", "IRIS_FACTS_BASE_METRICS.parquet (updated)"],
+    "outputs": ["React UI Simulator interface"],
+    "technology": "Azure SQL Server"
+  },
+  {
+    "id": "dest_alerts",
+    "name": "Proactive Alerts System",
+    "type": "destination",
+    "module": "Downstream Serving",
+    "purpose": "Calculates KPI deviation metrics and triggers email digests to subscriber profiles",
+    "inputs": ["IRIS_MODEL_COEF_CURRENT", "IRIS_FACTS_BASE_METRICS.parquet (updated)", "MODEL_DECOMP parquets"],
+    "outputs": ["Logic App HTTP Post -> Email delivery"],
+    "technology": "ADF ThreadPool / Logic Apps"
+  }
+]
